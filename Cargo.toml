@@ -19,4 +19,4 @@ clap = { version = "4.3.19", features = ["derive"] }
 tiny-bip39 = "1.0.0"
 crc = "3.0.1"
 dcbor = "0.7.4"
-sskr = "0.1.2"
+sskr = "0.12.0"
