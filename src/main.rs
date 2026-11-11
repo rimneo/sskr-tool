@@ -44,6 +44,12 @@ enum Commands {
 
         /// A valid BIP-39 seed phrase mnemonic (12 or 24 words); random if not specified
         mnemonic: Option<String>,
+
+        /// Write the deprecated version 1 tag (309, crypto-sskr) instead of the
+        /// current one (40309, sskr). Only needed for tools that cannot read 40309.
+        /// Recovery accepts both tags.
+        #[clap(long)]
+        legacy: bool,
     },
 
     /// Recovers the original BIP-39 mnemonic from SSKR shares.
@@ -59,15 +65,22 @@ fn main() {
             spec,
             group_threshold,
             mnemonic,
-        } => split(spec, group_threshold, mnemonic),
+            legacy,
+        } => split(spec, group_threshold, mnemonic, *legacy),
         Commands::Recover { filename } => recover(filename),
     }
 }
 
-fn split(spec: &String, group_threshold: &usize, mnemonic: &Option<String>) {
-    let result = match mnemonic {
-        Some(phrase) => split::split(spec, *group_threshold, &phrase),
-        None => split::split_random_phrase(spec, *group_threshold),
+fn split(spec: &String, group_threshold: &usize, mnemonic: &Option<String>, legacy: bool) {
+    let result = match (mnemonic, legacy) {
+        (Some(phrase), false) => split::split(spec, *group_threshold, phrase),
+        (None, false) => split::split_random_phrase(spec, *group_threshold),
+        (Some(phrase), true) => {
+            split::split_with_tag(spec, *group_threshold, phrase, tags::SSKR_SHARE_V1)
+        }
+        (None, true) => {
+            split::split_random_phrase_with_tag(spec, *group_threshold, tags::SSKR_SHARE_V1)
+        }
     };
 
     match result {

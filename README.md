@@ -68,3 +68,20 @@ relied upon for funds storage. The ideal usage of this tool is:
 Tests are included that round-trip share splitting and recovery with a variety
 of parameters. Before relying on the shares produced by this tool, test recovery
 (ideally with multiple SSKR implementations).
+
+## Share format and compatibility
+
+Shares are written as standard Bytewords wrapping a CBOR byte string tagged
+**40309** (`sskr`), the tag used by seedtool-cli and the other current
+implementations of [BCR-2020-011](https://github.com/BlockchainCommons/Research/blob/master/papers/bcr-2020-011-sskr.md).
+
+Versions up to 0.1.2 wrote tag **309** (`crypto-sskr`, version 1, now
+deprecated), which seedtool-cli does not accept. Recovery accepts both tags, so
+shares made by earlier versions of this tool are still recoverable. To produce
+shares with the deprecated tag, for a tool that cannot read 40309, pass
+`--legacy` to `split`:
+
+    $ sskr-tool split --legacy 2of3 1
+
+The two versions differ only in the tag; the Bytewords alphabet, the CRC, the
+share metadata and the Shamir scheme are identical.
