@@ -2,6 +2,7 @@ mod bytewords;
 mod recover;
 mod split;
 mod sskr_shares;
+mod tags;
 
 use bip39::Mnemonic;
 use clap::{Parser, Subcommand};

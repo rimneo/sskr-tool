@@ -1,5 +1,6 @@
 use crate::bytewords::*;
 use crate::sskr_shares::*;
+use crate::tags;
 use anyhow::{anyhow, bail, Error};
 use bip39::{Language, Mnemonic};
 use dcbor::CBOR;
@@ -15,8 +16,20 @@ pub fn recover(lines: Vec<String>) -> Result<Mnemonic, Error> {
         let bytes = byteword_string_to_bytes(line)?;
 
         // Unwrap data from CBOR container
+        // Both the current tag (40309) and the deprecated version 1 tag (309) are
+        // accepted, each share independently, so older shares remain recoverable.
         let cbor = CBOR::from_data(bytes.as_slice())?;
-        let cbor_bytes = cbor.expect_tagged_value(309)?;
+        let Some((tag, cbor_bytes)) = cbor.as_tagged_value() else {
+            bail!("Share is not a tagged CBOR value");
+        };
+        if !tags::is_share_tag(tag.value()) {
+            bail!(
+                "Unsupported CBOR tag {} (expected {} or {})",
+                tag.value(),
+                tags::SSKR_SHARE,
+                tags::SSKR_SHARE_V1
+            );
+        }
         let share = cbor_bytes.expect_byte_string()?;
 
         // Retain share data
@@ -140,4 +153,67 @@ pub fn recover(lines: Vec<String>) -> Result<Mnemonic, Error> {
     Err(anyhow!(
         "Not enough shares that belong together, unable to recover :("
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use dcbor::{CBOREncodable, CBOR};
+
+    // BCR-2020-011 test vector: secret 7daa851251002874e1a1995f0897e6b1,
+    // two groups (2 shares from the first, 3 from the second).
+    const VECTOR_SHARES: [&str; 5] = [
+        "4bbf1101003e990c1f0435e2b33c721535c74603d0",
+        "4bbf1101010c8ba39a7502a325ed07b8d597d1b80f",
+        "4bbf11120044ef453f66923d32653b377de5c94b39",
+        "4bbf1112016ffb1b0cc5ab485f5a67136c802bc67b",
+        "4bbf111202a3763155fcfdb5887abce6ee69c4bbcd",
+    ];
+    const VECTOR_ENTROPY: &str = "7daa851251002874e1a1995f0897e6b1";
+
+    fn line(share_hex: &str, tag: u64) -> String {
+        let share = hex::decode(share_hex).unwrap();
+        let cbor = CBOR::tagged_value(tag, CBOR::byte_string(share));
+        byteword_string(cbor.cbor_data().as_slice())
+    }
+
+    fn lines(tags: [u64; 5]) -> Vec<String> {
+        VECTOR_SHARES
+            .iter()
+            .zip(tags)
+            .map(|(share, tag)| line(share, tag))
+            .collect()
+    }
+
+    #[test]
+    fn recovers_official_vector_with_current_tag() {
+        let m = recover(lines([tags::SSKR_SHARE; 5])).unwrap();
+        assert_eq!(hex::encode(m.entropy()), VECTOR_ENTROPY);
+    }
+
+    #[test]
+    fn recovers_official_vector_with_version_1_tag() {
+        let m = recover(lines([tags::SSKR_SHARE_V1; 5])).unwrap();
+        assert_eq!(hex::encode(m.entropy()), VECTOR_ENTROPY);
+    }
+
+    #[test]
+    fn recovers_shares_mixing_both_tags() {
+        let m = recover(lines([40309, 309, 40309, 309, 40309])).unwrap();
+        assert_eq!(hex::encode(m.entropy()), VECTOR_ENTROPY);
+    }
+
+    #[test]
+    fn rejects_unknown_tag() {
+        let err = recover(lines([1000; 5])).unwrap_err().to_string();
+        assert!(err.contains("Unsupported CBOR tag 1000"), "{}", err);
+    }
+
+    #[test]
+    fn rejects_untagged_share() {
+        let share = hex::decode(VECTOR_SHARES[0]).unwrap();
+        let untagged = byteword_string(CBOR::byte_string(share).cbor_data().as_slice());
+        let err = recover(vec![untagged]).unwrap_err().to_string();
+        assert!(err.contains("not a tagged CBOR value"), "{}", err);
+    }
 }
